@@ -83,6 +83,12 @@ module aptos_framework::stake {
     /// https://github.com/aptos-labs/aptos-core/blob/main/crates/aptos-bitvec/src/lib.rs#L20
     const MAX_VALIDATOR_SET_SIZE: u64 = 65536;
 
+    /// Limit the maximum value of `rewards_rate` in order to avoid any arithmetic overflow.
+    const MAX_REWARDS_RATE: u64 = 10000;
+
+    /// The maximum value of u64 as u128.
+    const MAX_U64: u128 = 18446744073709551615;
+
     /// Capability that represents ownership and can be used to control the validator and the associated stake pool.
     /// Having this be separate from the signer for the account that the validator resources are hosted at allows
     /// modules to have control over a validator.
@@ -1158,6 +1164,12 @@ module aptos_framework::stake {
         rewards_rate: u64,
         rewards_rate_denominator: u64,
     ): u64 {
+        spec {
+            assume num_successful_proposals <= num_total_proposals;
+            // We assume that num_successful_proposals < 86400 (1 proposal per second in a day).
+            // Even in the worst case, the following condition must hold.
+            assume num_successful_proposals * MAX_REWARDS_RATE <= MAX_U64;
+        };
         // The rewards amount is equal to (stake amount * rewards rate * performance multiplier).
         // We do multiplication in u128 before division to avoid the overflow and minimize the rounding error.
         let rewards_numerator = (stake_amount as u128) * (rewards_rate as u128) * (num_successful_proposals as u128);
