@@ -15,6 +15,7 @@ module aptos_framework::storage_gas {
     const EZERO_TARGET_USAGE: u64 = 3;
     const ETARGET_USAGE_TOO_BIG: u64 = 4;
     const EINVALID_MONOTONICALLY_NON_DECREASING_CURVE: u64 = 5;
+    const EINVALID_POINT_RANGE: u64 = 6;
 
     const BASIS_POINT_DENOMINATION: u64 = 10000;
 
@@ -101,18 +102,29 @@ module aptos_framework::storage_gas {
     }
 
     public fun new_point(x: u64, y: u64): Point {
+        assert!(
+            x <= BASIS_POINT_DENOMINATION && y <= BASIS_POINT_DENOMINATION,
+            error::invalid_argument(EINVALID_POINT_RANGE)
+        );
         Point {x, y}
     }
 
     public fun new_gas_curve(min_gas: u64, max_gas: u64, points: vector<Point>): GasCurve {
+        //assert!(max_gas >= min_gas, error::invalid_argument(EINVALID_GAS_RANGE));
+        let augmented_points = vector::empty<Point>();
+        vector::push_back(&mut augmented_points, new_point(0, 0));
+        vector::append(&mut augmented_points, points);
+        vector::push_back(&mut augmented_points, new_point(BASIS_POINT_DENOMINATION, BASIS_POINT_DENOMINATION));
+        spec_assert (mins <= max)
         GasCurve {
             min_gas,
             max_gas,
-            points
+            points: augmented_points
         }
     }
 
     public fun new_usage_gas_config(target_usage: u64, read_curve: GasCurve, create_curve: GasCurve, write_curve: GasCurve): UsageGasConfig {
+        assert!(target_usage > 0, error::invalid_argument(EZERO_TARGET_USAGE));
         UsageGasConfig {
             target_usage,
             read_curve,
@@ -194,9 +206,9 @@ module aptos_framework::storage_gas {
         let points = &curve.points;
         let len = vector::length(points);
         let i = 0;
-        while (i <= len) {
-            let cur = if (i == 0) { &Point {x: 0, y: 0} } else { vector::borrow(points, i - 1) };
-            let next = if (i == len) { &Point {x: BASIS_POINT_DENOMINATION, y: BASIS_POINT_DENOMINATION} } else { vector::borrow(points, i) };
+        while (i < len-1) {
+            let cur = vector::borrow(points, i);
+            let next = vector::borrow(points, i+1);
             assert!(cur.x < next.x && cur.y <= next.y, error::invalid_argument(EINVALID_MONOTONICALLY_NON_DECREASING_CURVE));
             i = i + 1;
         }
@@ -206,38 +218,60 @@ module aptos_framework::storage_gas {
         let capped_current_usage = if (current_usage > max_usage) max_usage else current_usage;
         let points = &curve.points;
         let num_points = vector::length(points);
+        //let current_usage_bps = (((capped_current_usage as u128) * (BASIS_POINT_DENOMINATION as u128) / (max_usage as u128)) as u64);
         let current_usage_bps = capped_current_usage * BASIS_POINT_DENOMINATION / max_usage;
 
         // Check the corner case that current_usage_bps drops before the first point.
-        let (left, right) = if (num_points == 0) {
-            (&Point {x: 0, y: 0}, &Point {x: BASIS_POINT_DENOMINATION, y: BASIS_POINT_DENOMINATION})
-        } else {
-            let (i, j) = (0, num_points - 1);
-            while (i < j) {
-                let mid = j - (j - i) / 2;
-                if (current_usage_bps < vector::borrow(points, mid).x) {
-                    j = mid - 1;
-                } else {
-                    i = mid;
-                };
+        // let (i, j) = (0, num_points - 1);
+        // while ({
+        //     spec {
+        //         invariant i <= j;
+        //         invariant j < num_points;
+        //     };
+        //     i < j
+        // }) {
+        //     let mid = j - (j - i) / 2;
+        //     if (current_usage_bps < vector::borrow(points, mid).x) {
+        //         spec {
+        //             assert j > mid - 1;
+        //         };
+        //         j = mid - 1;
+        //     } else {
+        //         spec {
+        //             assert i < mid;
+        //         };
+        //         i = mid;
+        //     };
+        // };
+        let i = 1;
+        while(i < num_points) {
+            if (current_usage_bps < vector::borrow(points, i).x) {
+                break
             };
-            if (current_usage_bps < vector::borrow(points, 0).x) {
-                (&Point {x: 0, y: 0}, vector::borrow(points, 0))
-            } else {
-                // Check the corner case that current_usage_bps drops after the last point.
-                (
-                    vector::borrow(points, i),
-                    if (i == num_points - 1) {
-                        &Point { x: BASIS_POINT_DENOMINATION, y: BASIS_POINT_DENOMINATION }
-                    } else {
-                        vector::borrow(points, i + 1)
-                    }
-                )
-            }
+            i = i + 1;
         };
+        i = i - 1;
+        let left = vector::borrow(points, i);
+        if (i + 1 < num_points) {
+            i = i + 1;
+        };
+        let right = vector::borrow(points, i);
+        spec {
+            assume curve.min_gas <= 10000;
+            assume curve.max_gas <= 10000;
+            assume current_usage_bps >= left.x;
+            // assume (right.y >= left.y);
+            // assume (right.x > left.x);
+        };
+        // let range = curve.max_gas - curve.min_gas;
+        // let x = left.y + (current_usage_bps - left.x) * (right.y - left.y) / (right.x - left.x);
+        // curve.min_gas + range * x / BASIS_POINT_DENOMINATION
+
+        assert!(current_usage_bps >= left.x, left.x);
 
         curve.min_gas + (curve.max_gas - curve.min_gas) * (left.y + (current_usage_bps - left.x) * (right.y - left.y) / (right.x - left.x)) / BASIS_POINT_DENOMINATION
     }
+
 
     fun calculate_read_gas(config: &UsageGasConfig, usage: u64): u64 {
         calculate_gas(config.target_usage, usage, &config.read_curve)
