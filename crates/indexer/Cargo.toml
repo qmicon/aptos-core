@@ -29,6 +29,7 @@ diesel = { version = "1.4.8", features = [
   "numeric",
   "serde_json",
 ] }
+diesel-derive-enum = { version = "1.1.2", features = ["postgres"] }
 diesel_migrations = { version = "1.4.0", features = ["postgres"] }
 field_count = "0.1.1"
 futures = "0.3.21"

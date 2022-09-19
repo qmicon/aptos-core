@@ -5,17 +5,16 @@
 #![allow(clippy::extra_unused_lifetimes)]
 #![allow(clippy::unused_unit)]
 
-use crate::{
-    schema::collection_datas,
-    util::{hash_str, u64_to_bigdecimal},
-};
+use crate::{schema::collection_datas, util::hash_str};
 use anyhow::Context;
 use aptos_api_types::WriteTableItem as APIWriteTableItem;
-use bigdecimal::BigDecimal;
 use field_count::FieldCount;
 use serde::{Deserialize, Serialize};
 
-use super::tokens::{TableHandleToOwner, TableMetadataForToken};
+use super::{
+    token_utils::TokenWriteSet,
+    tokens::{TableHandleToOwner, TableMetadataForToken},
+};
 
 #[derive(Debug, Deserialize, FieldCount, Identifiable, Insertable, Queryable, Serialize)]
 #[primary_key(creator_address, collection_name_hash, transaction_version)]
@@ -43,88 +42,42 @@ impl CollectionData {
         table_handle_to_owner: &TableHandleToOwner,
     ) -> anyhow::Result<Option<Self>> {
         let table_item_data = table_item.data.as_ref().unwrap();
-        if table_item_data.value_type != "0x3::token::CollectionData" {
-            return Ok(None);
+
+        let maybe_collection_data = match TokenWriteSet::from_table_item_type(
+            table_item_data.value_type.as_str(),
+            &table_item_data.value,
+            txn_version,
+        )? {
+            Some(TokenWriteSet::CollectionData(inner)) => Some(inner),
+            _ => None,
+        };
+        if let Some(collection_data) = maybe_collection_data {
+            let table_handle = table_item.handle.to_string();
+            let creator_address = table_handle_to_owner
+                            .get(&TableMetadataForToken::standardize_handle(&table_handle))
+                            .map(|table_metadata| table_metadata.owner_address.clone())
+                            .context(format!(
+                                "version {} failed! collection creator resource was missing, table handle {} not in map {:?}",
+                                txn_version, TableMetadataForToken::standardize_handle(&table_handle), table_handle_to_owner,
+                            ))?;
+            let collection_name_hash = hash_str(&collection_data.name);
+
+            Ok(Some(Self {
+                collection_name: collection_data.name,
+                creator_address,
+                collection_name_hash,
+                description: collection_data.description,
+                transaction_version: txn_version,
+                metadata_uri: collection_data.uri,
+                supply: collection_data.supply,
+                maximum: collection_data.maximum,
+                maximum_mutable: collection_data.mutability_config.maximum,
+                uri_mutable: collection_data.mutability_config.uri,
+                description_mutable: collection_data.mutability_config.description,
+                inserted_at: chrono::Utc::now().naive_utc(),
+            }))
+        } else {
+            Ok(None)
         }
-
-        let value = &table_item_data.value;
-        let table_handle = table_item.handle.to_string();
-        let creator_address = table_handle_to_owner
-                .get(&TableMetadataForToken::standardize_handle(&table_handle))
-                .map(|table_metadata| table_metadata.owner_address.clone())
-                .context(format!(
-                    "version {} failed! collection creator resource was missing, table handle {} not in map {:?}",
-                    txn_version, TableMetadataForToken::standardize_handle(&table_handle), table_handle_to_owner,
-                ))?;
-        let collection_name = value["name"]
-            .as_str()
-            .map(|s| s.to_string())
-            .context(format!(
-                "version {} failed! name missing from collection {:?}",
-                txn_version, value
-            ))?;
-        let collection_name_hash = hash_str(&collection_name);
-
-        Ok(Some(Self {
-            collection_name,
-            creator_address,
-            collection_name_hash,
-            description: value["description"]
-                .as_str()
-                .map(|s| s.to_string())
-                .context(format!(
-                    "version {} failed! description missing from collection {:?}",
-                    txn_version, value
-                ))?,
-            transaction_version: txn_version,
-            metadata_uri: value["uri"]
-                .as_str()
-                .map(|s| s.to_string())
-                .context(format!(
-                    "version {} failed! uri missing from collection {:?}",
-                    txn_version, value
-                ))?,
-            supply: value["supply"]
-                .as_str()
-                .map(|s| -> anyhow::Result<BigDecimal> { Ok(u64_to_bigdecimal(s.parse::<u64>()?)) })
-                .context(format!(
-                    "version {} failed! supply missing from collection {:?}",
-                    txn_version, value
-                ))?
-                .context(format!(
-                    "version {} failed! failed to parse supply {:?}",
-                    txn_version, value["supply"]
-                ))?,
-            maximum: value["maximum"]
-                .as_str()
-                .map(|s| -> anyhow::Result<BigDecimal> { Ok(u64_to_bigdecimal(s.parse::<u64>()?)) })
-                .context(format!(
-                    "version {} failed! maximum missing from collection {:?}",
-                    txn_version, value
-                ))?
-                .context(format!(
-                    "version {} failed! failed to parse maximum {:?}",
-                    txn_version, value["maximum"]
-                ))?,
-            maximum_mutable: value["mutability_config"]["maximum"]
-                .as_bool()
-                .context(format!(
-                    "version {} failed! mutability_config.maximum missing {:?}",
-                    txn_version, value
-                ))?,
-            uri_mutable: value["mutability_config"]["uri"]
-                .as_bool()
-                .context(format!(
-                    "version {} failed! mutability_config.uri missing {:?}",
-                    txn_version, value
-                ))?,
-            description_mutable: value["mutability_config"]["description"]
-                .as_bool()
-                .context(format!(
-                    "version {} failed! mutability_config.description missing {:?}",
-                    txn_version, value
-                ))?,
-            inserted_at: chrono::Utc::now().naive_utc(),
-        }))
     }
 }

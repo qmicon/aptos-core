@@ -1,6 +1,3 @@
-// Copyright (c) Aptos
-// SPDX-License-Identifier: Apache-2.0
-
 table! {
     block_metadata_transactions (version) {
         version -> Int8,
@@ -30,6 +27,39 @@ table! {
         uri_mutable -> Bool,
         description_mutable -> Bool,
         inserted_at -> Timestamp,
+    }
+}
+
+table! {
+    current_token_listings (creator_address, collection_name_hash, name_hash, property_version, lister_address) {
+        creator_address -> Varchar,
+        collection_name_hash -> Varchar,
+        name_hash -> Varchar,
+        property_version -> Numeric,
+        lister_address -> Varchar,
+        collection_name -> Text,
+        name -> Text,
+        latest_transaction_version -> Int8,
+        coin_type -> Varchar,
+        min_price_per_token -> Numeric,
+        amount -> Numeric,
+        last_updated -> Timestamp,
+    }
+}
+
+table! {
+    current_token_pending_claims (creator_address, collection_name_hash, name_hash, property_version, from_address, to_address) {
+        creator_address -> Varchar,
+        collection_name_hash -> Varchar,
+        name_hash -> Varchar,
+        property_version -> Numeric,
+        from_address -> Varchar,
+        to_address -> Varchar,
+        collection_name -> Text,
+        name -> Text,
+        latest_transaction_version -> Int8,
+        amount -> Numeric,
+        last_updated -> Timestamp,
     }
 }
 
@@ -134,6 +164,25 @@ table! {
         handle -> Varchar,
         key_type -> Text,
         value_type -> Text,
+        inserted_at -> Timestamp,
+    }
+}
+
+table! {
+    token_activities (creator_address, collection_name_hash, name_hash, property_version, event_key, event_sequence_number) {
+        creator_address -> Varchar,
+        collection_name_hash -> Varchar,
+        name_hash -> Varchar,
+        property_version -> Numeric,
+        event_key -> Varchar,
+        event_sequence_number -> Int8,
+        collection_name -> Text,
+        name -> Text,
+        transaction_version -> Int8,
+        transfer_type -> Varchar,
+        from_address -> Nullable<Varchar>,
+        to_address -> Nullable<Varchar>,
+        amount -> Numeric,
         inserted_at -> Timestamp,
     }
 }
@@ -247,6 +296,8 @@ table! {
 allow_tables_to_appear_in_same_query!(
     block_metadata_transactions,
     collection_datas,
+    current_token_listings,
+    current_token_pending_claims,
     events,
     ledger_infos,
     move_modules,
@@ -255,6 +306,7 @@ allow_tables_to_appear_in_same_query!(
     signatures,
     table_items,
     table_metadatas,
+    token_activities,
     token_datas,
     token_ownerships,
     tokens,

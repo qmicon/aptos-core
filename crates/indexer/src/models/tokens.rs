@@ -8,13 +8,12 @@
 use std::collections::HashMap;
 
 use super::{
-    collection_datas::CollectionData,
-    move_resources::MoveResource,
-    token_datas::{TokenData, TokenDataId},
+    collection_datas::CollectionData, move_resources::MoveResource, token_datas::TokenData,
+    token_utils::TokenWriteSet,
 };
 use crate::{
     schema::{token_ownerships, tokens},
-    util::{ensure_not_negative, hash_str, u64_to_bigdecimal},
+    util::{ensure_not_negative, hash_str},
 };
 use anyhow::Context;
 use aptos_api_types::{
@@ -170,60 +169,56 @@ impl Token {
         table_handle_to_owner: &TableHandleToOwner,
     ) -> anyhow::Result<Option<(Self, TokenOwnership)>> {
         let table_item_data = table_item.data.as_ref().unwrap();
-        if table_item_data.key_type != "0x3::token::TokenId" {
-            return Ok(None);
-        }
-        let table_handle =
-            TableMetadataForToken::standardize_handle(&table_item.handle.to_string());
-        let (owner_address, table_type) = table_handle_to_owner
-            .get(&table_handle)
-            .map(|table_metadata| {
-                (
-                    Some(table_metadata.owner_address.clone()),
-                    Some(table_metadata.table_type.clone()),
-                )
-            })
-            .unwrap_or((None, None));
-        let key = &table_item_data.key;
-        let token_data_id = Self::get_token_data_id_from_table_item_key(key, txn_version)?;
-        let property_version = Self::get_property_version_from_table_item_key(key, txn_version)?;
 
-        let collection_name_hash = hash_str(&token_data_id.collection_name);
-        let name_hash = hash_str(&token_data_id.name);
+        let maybe_token = match TokenWriteSet::from_table_item_type(
+            table_item_data.value_type.as_str(),
+            &table_item_data.value,
+            txn_version,
+        )? {
+            Some(TokenWriteSet::Token(inner)) => Some(inner),
+            _ => None,
+        };
 
-        if table_item_data.value_type == "0x3::token::Token" {
-            let value = &table_item_data.value;
+        if let Some(token) = maybe_token {
+            let table_handle =
+                TableMetadataForToken::standardize_handle(&table_item.handle.to_string());
+            let (owner_address, table_type) = table_handle_to_owner
+                .get(&table_handle)
+                .map(|table_metadata| {
+                    (
+                        Some(table_metadata.owner_address.clone()),
+                        Some(table_metadata.table_type.clone()),
+                    )
+                })
+                .unwrap_or((None, None));
+
+            let token_id = token.id;
+            let token_data_id = token_id.token_data_id;
+            let collection_name_hash = hash_str(&token_data_id.collection);
+            let name_hash = hash_str(&token_data_id.name);
+
             Ok(Some((
                 Self {
-                    creator_address: token_data_id.creator_address.clone(),
+                    creator_address: token_data_id.creator.clone(),
                     collection_name_hash: collection_name_hash.clone(),
                     name_hash: name_hash.clone(),
-                    collection_name: token_data_id.collection_name.clone(),
+                    collection_name: token_data_id.collection.clone(),
                     name: token_data_id.name.clone(),
-                    property_version: property_version.clone(),
+                    property_version: token_id.property_version.clone(),
                     transaction_version: txn_version,
-                    token_properties: value["token_properties"].clone(),
+                    token_properties: token.token_properties.clone(),
                     inserted_at: chrono::Utc::now().naive_utc(),
                 },
                 TokenOwnership {
-                    creator_address: token_data_id.creator_address.clone(),
-                    collection_name: token_data_id.collection_name.clone(),
+                    creator_address: token_data_id.creator,
+                    collection_name: token_data_id.collection,
                     collection_name_hash,
                     name_hash,
                     name: token_data_id.name,
-                    property_version,
+                    property_version: token_id.property_version,
                     transaction_version: txn_version,
                     owner_address,
-                    amount: value["amount"]
-                        .as_str()
-                        .map(|s| -> anyhow::Result<BigDecimal> {
-                            Ok(ensure_not_negative(u64_to_bigdecimal(s.parse::<u64>()?)))
-                        })
-                        .context(format!(
-                            "version {} failed! amount missing from token {:?}",
-                            txn_version, value
-                        ))?
-                        .context(format!("failed to parse amount {:?}", value["amount"]))?,
+                    amount: ensure_not_negative(token.amount),
                     table_handle,
                     table_type,
                     inserted_at: chrono::Utc::now().naive_utc(),
@@ -242,100 +237,62 @@ impl Token {
         table_handle_to_owner: &TableHandleToOwner,
     ) -> anyhow::Result<Option<(Self, TokenOwnership)>> {
         let table_item_data = table_item.data.as_ref().unwrap();
-        if table_item_data.key_type != "0x3::token::TokenId" {
-            return Ok(None);
+
+        let maybe_token_id = match TokenWriteSet::from_table_item_type(
+            table_item_data.key_type.as_str(),
+            &table_item_data.key,
+            txn_version,
+        )? {
+            Some(TokenWriteSet::TokenId(inner)) => Some(inner),
+            _ => None,
+        };
+
+        if let Some(token_id) = maybe_token_id {
+            let table_handle =
+                TableMetadataForToken::standardize_handle(&table_item.handle.to_string());
+            let (owner_address, table_type) = table_handle_to_owner
+                .get(&table_handle)
+                .map(|table_metadata| {
+                    (
+                        Some(table_metadata.owner_address.clone()),
+                        Some(table_metadata.table_type.clone()),
+                    )
+                })
+                .unwrap_or((None, None));
+            let token_data_id = token_id.token_data_id;
+            let collection_name_hash = hash_str(&token_data_id.collection);
+            let name_hash = hash_str(&token_data_id.name);
+
+            Ok(Some((
+                Self {
+                    creator_address: token_data_id.creator.clone(),
+                    collection_name: token_data_id.collection.clone(),
+                    name: token_data_id.name.clone(),
+                    collection_name_hash: collection_name_hash.clone(),
+                    name_hash: name_hash.clone(),
+                    property_version: token_id.property_version.clone(),
+                    transaction_version: txn_version,
+                    token_properties: serde_json::Value::Null,
+                    inserted_at: chrono::Utc::now().naive_utc(),
+                },
+                TokenOwnership {
+                    creator_address: token_data_id.creator,
+                    collection_name: token_data_id.collection,
+                    name: token_data_id.name,
+                    collection_name_hash,
+                    name_hash,
+                    property_version: token_id.property_version,
+                    transaction_version: txn_version,
+                    owner_address,
+                    amount: BigDecimal::default(),
+                    table_handle,
+                    table_type,
+                    inserted_at: chrono::Utc::now().naive_utc(),
+                },
+            )))
+        } else {
+            Ok(None)
         }
-        let table_handle =
-            TableMetadataForToken::standardize_handle(&table_item.handle.to_string());
-        let (owner_address, table_type) = table_handle_to_owner
-            .get(&table_handle)
-            .map(|table_metadata| {
-                (
-                    Some(table_metadata.owner_address.clone()),
-                    Some(table_metadata.table_type.clone()),
-                )
-            })
-            .unwrap_or((None, None));
-        let key = &table_item_data.key;
-        let token_data_id = Self::get_token_data_id_from_table_item_key(key, txn_version)?;
-        let property_version = Self::get_property_version_from_table_item_key(key, txn_version)?;
-
-        let collection_name_hash = hash_str(&token_data_id.collection_name);
-        let name_hash = hash_str(&token_data_id.name);
-
-        Ok(Some((
-            Self {
-                creator_address: token_data_id.creator_address.clone(),
-                collection_name: token_data_id.collection_name.clone(),
-                name: token_data_id.name.clone(),
-                collection_name_hash: collection_name_hash.clone(),
-                name_hash: name_hash.clone(),
-                property_version: property_version.clone(),
-                transaction_version: txn_version,
-                token_properties: serde_json::Value::Null,
-                inserted_at: chrono::Utc::now().naive_utc(),
-            },
-            TokenOwnership {
-                creator_address: token_data_id.creator_address.clone(),
-                collection_name: token_data_id.collection_name.clone(),
-                name: token_data_id.name,
-                collection_name_hash,
-                name_hash,
-                property_version,
-                transaction_version: txn_version,
-                owner_address,
-                amount: BigDecimal::default(),
-                table_handle,
-                table_type,
-                inserted_at: chrono::Utc::now().naive_utc(),
-            },
-        )))
-    }
-
-    fn get_property_version_from_table_item_key(
-        key: &serde_json::Value,
-        txn_version: i64,
-    ) -> anyhow::Result<BigDecimal> {
-        key["property_version"]
-            .as_str()
-            .map(|s| -> anyhow::Result<BigDecimal> { Ok(u64_to_bigdecimal(s.parse::<u64>()?)) })
-            .context(format!(
-                "version {} failed! token_data_id.property_version missing from token id {:?}",
-                txn_version, key
-            ))?
-            .context(format!(
-                "version {} failed! failed to parse property_version {:?}",
-                txn_version, key["property_version"]
-            ))
-    }
-
-    fn get_token_data_id_from_table_item_key(
-        key: &serde_json::Value,
-        txn_version: i64,
-    ) -> anyhow::Result<TokenDataId> {
-        Ok(TokenDataId {
-            creator_address: key["token_data_id"]["creator"]
-                .as_str()
-                .map(|s| s.to_string())
-                .context(format!(
-                    "version {} failed! token_data_id.creator missing from token_id {:?}",
-                    txn_version, key
-                ))?,
-            collection_name: key["token_data_id"]["collection"]
-                .as_str()
-                .map(|s| s.to_string())
-                .context(format!(
-                    "version {} failed! token_data_id.collection missing from token_id {:?}",
-                    txn_version, key
-                ))?,
-            name: key["token_data_id"]["name"]
-                .as_str()
-                .map(|s| s.to_string())
-                .context(format!(
-                    "version {} failed! name missing from token_id {:?}",
-                    txn_version, key
-                ))?,
-        })
     }
 }
 
