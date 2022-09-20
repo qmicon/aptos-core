@@ -5,8 +5,8 @@ use crate::vote_data::VoteData;
 use anyhow::{ensure, Context};
 use aptos_bitvec::BitVec;
 use aptos_crypto::{hash::CryptoHash, HashValue};
-use aptos_types::aggregate_signature::AggregateSignature;
 use aptos_types::{
+    aggregate_signature::AggregateSignature,
     block_info::BlockInfo,
     ledger_info::{LedgerInfo, LedgerInfoWithSignatures},
     validator_verifier::ValidatorVerifier,
@@ -142,6 +142,10 @@ impl QuorumCert {
     ) -> anyhow::Result<QuorumCert> {
         let self_commit_info = self.commit_info();
         let executed_commit_info = executed_ledger_info.ledger_info().commit_info();
+        ensure!(
+            executed_ledger_info.ledger_info().consensus_data_hash() == self.vote_data.hash(),
+            "Consensus data hash doesn't match"
+        );
         ensure!(
             self_commit_info.match_ordered_only(executed_commit_info),
             "Block info from QC and executed LI need to match, {:?} and {:?}",
