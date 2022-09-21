@@ -3168,8 +3168,7 @@ checksum = "850878694b7933ca4c9569d30a34b55031b9b139ee1fc7b94a527c4ef960d690"
 [[package]]
 name = "diesel"
 version = "2.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "01e2adfd0a7a81070ed7beec0c62636458926326c16fedb77796d41e447b282d"
+source = "git+https://github.com/aptos-labs/diesel#269e8b242eb2664c6fc98972de092a060d96be28"
 dependencies = [
  "bigdecimal",
  "bitflags",
@@ -3188,8 +3187,7 @@ dependencies = [
 [[package]]
 name = "diesel_derives"
 version = "2.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "22a7ab9d7967e6a1a247ea38aedf88ab808b4ac0c159576bc71866ab8f9f9250"
+source = "git+https://github.com/aptos-labs/diesel#269e8b242eb2664c6fc98972de092a060d96be28"
 dependencies = [
  "proc-macro-error",
  "proc-macro2 1.0.43",
